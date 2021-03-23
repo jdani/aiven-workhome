@@ -2,6 +2,7 @@
 
 import os
 import requests
+import urllib3
 import sys
 import re
 import socket
@@ -32,26 +33,11 @@ def setup_logger(config):
             level=log_level
     )
 
-def main():
-    config_default = {
-        'AIVEN_LOG_PATH': 'stdout',
-        'AIVEN_LOG_LEVEL': 'INFO',
-        'AIVEN_DELAY': 5,
-        'SITE_HTTP_SCHEMA': 'https',
-        'SITE_HOST': 'example.net',
-        'SITE_PATH': '/',
-    }
-
-    parser = EnvConfigParser()
-    config = parser.get_parser('producer.cfg', config_default)
-
-    setup_logger(config)
-    logger.info('Using config file: {}'.format('producer.cfg'))
-
-    
 
 
-    # Generating vars to generate a more readable code
+def monitor(config):
+
+    # GenerDefining vars to generate a more readable code
     host = config.get('site', 'host')
     logger.debug('Host: {}'.format(host))
     
@@ -104,7 +90,8 @@ def main():
 
     logger.info("Accesing {}".format(url))
 
-
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    # https://stackoverflow.com/questions/27234905/programmatically-access-virtual-host-site-from-ip-python-iis
     r = requests.get(http_host_ip, headers=header, verify=False)
     regex_found = False
     if r.status_code == 200:
@@ -113,7 +100,7 @@ def main():
             logger.info("Regex found!")
     
 
-    msg = { 
+    msg = {
             'meta': {},
             'dns': {},
             'http': {}
@@ -134,8 +121,33 @@ def main():
     msg['dns']['elapsed'] = dns_elapsed
     msg['dns']['ip'] = site_ip
 
-    if r.status_code >= 400 and r.status_code <= 599:
+    return msg
+
+
+
+def main():
+    config_default = {
+        'AIVEN_LOG_PATH': 'stdout',
+        'AIVEN_LOG_LEVEL': 'INFO',
+        'AIVEN_DELAY': 5,
+        'SITE_HTTP_SCHEMA': 'https',
+        'SITE_HOST': 'example.net',
+        'SITE_PATH': '/',
+    }
+
+    parser = EnvConfigParser()
+    config = parser.get_parser('producer.cfg', config_default)
+
+    setup_logger(config)
+    logger.info('Using config file: {}'.format('producer.cfg'))
+
+    
+
+    msg = monitor(config)
+
+    if msg['http']['status_code'] >= 400 and msg['http']['status_code'] <= 599:
         logger.error("Host could not be retrieved")
+    
     print(json.dumps(msg))
 
 
