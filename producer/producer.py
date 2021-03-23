@@ -8,22 +8,23 @@ import re
 import socket
 import time
 import json
+import threading
 from envconfigparser import EnvConfigParser 
 from loguru import logger
 
 
-def setup_logger(config):
+def setup_logger(log_sink, log_level):
     # Remove default logger to prevent log twice every message
     logger.remove()
 
     # If log path set to stdout or not to an absolute path, set stdout as logs sink
-    log_sink = config.get('aiven', 'log_path')
+    
     if not os.path.isabs(log_sink) or log_sink == 'stdout':
         log_sink = sys.stdout
 
     # If not a vald log level, set INFO
     log_valid_levels = "TRACE DEBUG INFO SUCCESS WARNING ERROR CRITICAL"
-    log_level = config.get('aiven', 'log_level').upper()
+    
     if log_level not in log_valid_levels.replace(' ', ''):
         log_level = 'INFO'
 
@@ -35,7 +36,7 @@ def setup_logger(config):
 
 
 
-def monitor(config):
+def run_check():
 
     # GenerDefining vars to generate a more readable code
     host = config.get('site', 'host')
@@ -67,10 +68,10 @@ def monitor(config):
 
 
     # https://stackoverflow.com/questions/38174877/python-measuring-dns-and-roundtrip-time
-    dns_start = time.time() * 1000000
+    dns_start = time.time()
     site_ip = socket.gethostbyname(host)
-    dns_stop = time.time() * 1000000
-    dns_elapsed = dns_stop - dns_start
+    dns_stop = time.time()
+    dns_elapsed = int(( dns_stop - dns_start ) * 1000000)
 
     http_host_ip = "{}://{}/{}".format(
         http_schema,
@@ -114,18 +115,60 @@ def monitor(config):
     msg['http']['path'] = http_path
     msg['http']['url'] = url
     msg['http']['status_code'] = r.status_code
-    msg['http']['elapsed'] = r.elapsed.microseconds * 1000
+    msg['http']['elapsed'] = r.elapsed.microseconds
     msg['http']['regex'] = http_regex
     msg['http']['regex_found'] = regex_found
 
     msg['dns']['elapsed'] = dns_elapsed
     msg['dns']['ip'] = site_ip
 
-    return msg
+    r.close()
+    produce_message(msg)
+
+
+
+def produce_message(message):
+    print(config.get('aiven','delay'))
+    if message['http']['status_code'] >= 400 and message['http']['status_code'] <= 599:
+        logger.error("Host could not be retrieved")
+
+    print(json.dumps(message))
 
 
 
 def main():
+
+
+    log_sink = config.get('aiven', 'log_path')
+    log_level = config.get('aiven', 'log_level').upper()
+    setup_logger(log_sink, log_level)
+
+    logger.info('Using config file: {}'.format('producer.cfg'))
+
+    try:
+        loop_delay = config.getint('aiven', 'delay')
+    except Exception:
+        loop_delay = config_default['AIVEN_DELAY']
+    
+    while True:
+        try:
+            
+            # Running the check in a separated thread makes the check run more regularly and close
+            # to the delay defined in config['aiven']['delay']. This way the time that takes the check itself
+            # is not accumulated to the config delay.
+            x = threading.Thread(target=run_check)
+            x.start()
+            time.sleep(loop_delay)
+
+        except KeyboardInterrupt:
+            logger.info("Keyboard interrupt captured. Exiting...")
+            sys.exit(1)
+
+
+
+if __name__ == "__main__":
+    
+    # Load config here so config object is available in the whole module
     config_default = {
         'AIVEN_LOG_PATH': 'stdout',
         'AIVEN_LOG_LEVEL': 'INFO',
@@ -138,23 +181,5 @@ def main():
     parser = EnvConfigParser()
     config = parser.get_parser('producer.cfg', config_default)
 
-    setup_logger(config)
-    logger.info('Using config file: {}'.format('producer.cfg'))
-
-    
-
-    msg = monitor(config)
-
-    if msg['http']['status_code'] >= 400 and msg['http']['status_code'] <= 599:
-        logger.error("Host could not be retrieved")
-    
-    print(json.dumps(msg))
-
-
-
-
-
-
-
-if __name__ == "__main__":
+    # Run main
     main()
