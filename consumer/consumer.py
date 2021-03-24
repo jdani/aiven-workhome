@@ -95,10 +95,7 @@ if __name__ == "__main__":
     config_default = {
         'AIVEN_LOG_PATH': 'stdout',
         'AIVEN_LOG_LEVEL': 'INFO',
-        'AIVEN_DELAY': 5,
-        'SITE_HTTP_SCHEMA': 'https',
-        'SITE_HOST': 'example.net',
-        'SITE_PATH': '/',
+        'AIVEN_DELAY': 5
     }
 
     parser = EnvConfigParser()
