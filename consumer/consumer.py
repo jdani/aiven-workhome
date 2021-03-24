@@ -5,9 +5,17 @@ import sys
 import socket
 import time
 import json
+import psycopg2
 from kafka import KafkaConsumer
 from envconfigparser import EnvConfigParser 
 from loguru import logger
+
+
+def read_uri_file(urifile):
+    with open('/usr/share/postgresql/uri.txt', 'r') as cfg_file:
+        uri = cfg_file.read().strip()
+    return uri
+
 
 
 def get_consumer():
@@ -82,9 +90,15 @@ def main():
 
         except KeyboardInterrupt:
             logger.info("Keyboard interrupt captured...")
-            logger.info("Commiting kafka consumer, closing it and exiting.")
+            logger.info("Commiting kafka consumer and closing it.")
             kafka_consumer.commit()
             kafka_consumer.close()
+
+            logger.info("Commiting pending actions to the db and closing the connection.")
+            db_conn.commit()
+            db_conn.close()
+
+            # Exit
             sys.exit(1)
 
 
@@ -103,6 +117,9 @@ if __name__ == "__main__":
     config = parser.get_parser('consumer.cfg', config_default)
 
     kafka_consumer = get_consumer()
+
+    postgresql_uri = read_uri_file(config.get('postgresql', 'uri_file'))
+    db_conn = psycopg2.connect(postgresql_uri)
 
     # Run main
     main()
