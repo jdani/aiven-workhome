@@ -95,7 +95,8 @@ if __name__ == "__main__":
     config_default = {
         'AIVEN_LOG_PATH': 'stdout',
         'AIVEN_LOG_LEVEL': 'INFO',
-        'AIVEN_DELAY': 5
+        'AIVEN_DELAY': 5,
+        'POSTGRESQL_DB': 'http-monitor'
     }
 
     parser = EnvConfigParser()
