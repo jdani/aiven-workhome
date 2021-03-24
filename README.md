@@ -11,3 +11,11 @@ To get this idea working I wrote a sime class that:
 1. load the config from file as a regular ConfigParser object
 1. Goes section by section and var by var trying to find that `SECTION_VAR` (note the uppercase) as an env var and ,if it exist, the var is updated with the env var value.
 1. Returns the updated `ConfigParser` object
+
+
+
+## Prerequisites
+1. kafka running and auto-create topic enabled
+
+## What to improve
+1. feature to define mandatory config vars and type

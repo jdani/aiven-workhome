@@ -9,9 +9,21 @@ import socket
 import time
 import json
 import threading
+from kafka import KafkaProducer
 from envconfigparser import EnvConfigParser 
 from loguru import logger
 
+
+def get_producer():
+    # https://github.com/aiven/aiven-examples/blob/master/kafka/python/producer_example.py
+    producer = KafkaProducer(
+        bootstrap_servers=config.get('kafka', 'uri'),
+        security_protocol="SSL",
+        ssl_cafile=config.get('kafka', 'ssl_cafile'),
+        ssl_certfile=config.get('kafka', 'ssl_certfile'),
+        ssl_keyfile=config.get('kafka', 'ssl_keyfile'),
+    )
+    return producer
 
 def setup_logger(log_sink, log_level):
     # Remove default logger to prevent log twice every message
@@ -123,16 +135,16 @@ def run_check():
     msg['dns']['ip'] = site_ip
 
     r.close()
-    produce_message(msg)
+
+    if msg['http']['status_code'] >= 400 and msg['http']['status_code'] <= 599:
+        logger.error("Host could not be retrieved")
+
+    produce_message(json.dumps(msg))
 
 
 
 def produce_message(message):
-    print(config.get('aiven','delay'))
-    if message['http']['status_code'] >= 400 and message['http']['status_code'] <= 599:
-        logger.error("Host could not be retrieved")
-
-    print(json.dumps(message))
+    kafka_producer.send(config.get('kafka', 'topic'), message.encode("utf-8"))
 
 
 
@@ -161,7 +173,10 @@ def main():
             time.sleep(loop_delay)
 
         except KeyboardInterrupt:
-            logger.info("Keyboard interrupt captured. Exiting...")
+            logger.info("Keyboard interrupt captured...")
+            logger.info("Closing kafka producer and exiting.")
+            kafka_producer.flush()
+            kafka_producer.close()
             sys.exit(1)
 
 
@@ -180,6 +195,8 @@ if __name__ == "__main__":
 
     parser = EnvConfigParser()
     config = parser.get_parser('producer.cfg', config_default)
+
+    kafka_producer = get_producer()
 
     # Run main
     main()
