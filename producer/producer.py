@@ -25,6 +25,8 @@ def get_producer():
     )
     return producer
 
+
+
 def setup_logger(log_sink, log_level):
     # Remove default logger to prevent log twice every message
     logger.remove()
@@ -48,9 +50,47 @@ def setup_logger(log_sink, log_level):
 
 
 
+def resolve_host(host):
+    # The idea is to know how long takes the dns request to, in case of an increase in the total response time,
+    # having enough info to know if it is because of the DNS or the http
+    dns_start = time.time()
+    ip = socket.gethostbyname(host)
+    dns_stop = time.time()
+    elapsed = int(( dns_stop - dns_start ) * 1000000)
+    return ip, dns_start, elapsed
+
+
+
+def http_get(http_host_ip, host, url):
+    # The idea is to access an http service by IP and avoid any DNS request. This does not work in most cases, where multiple domains
+    # are served behind the same IP using virtual hosts. So it is needed to define the host in the header.
+    # https://stackoverflow.com/questions/27234905/programmatically-access-virtual-host-site-from-ip-python-iis
+
+    header = {'Host': host}
+
+    # Disable non-checking certificate warnings
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+    r = None
+    s = requests.Session()
+    s.max_redirects = 0
+
+    request_timeout = float(config.getint('site','timeout'))
+    logger.debug('HTTP timeout: {}'.format(request_timeout))
+    # https://stackoverflow.com/questions/27234905/programmatically-access-virtual-host-site-from-ip-python-iis
+    http_start = time.time()
+    try:
+        r = s.get(http_host_ip, headers=header, verify=False, allow_redirects=False, timeout=request_timeout)
+    except requests.exceptions.TooManyRedirects:
+        logger.error('Too many redirects. Please, be sure the host is not redirecting.')
+
+    return http_start, r
+
+
+
 def run_check():
 
-    # GenerDefining vars to generate a more readable code
+    # START: Config to vars to generate a more readable code
     host = config.get('site', 'host')
     logger.debug('Host: {}'.format(host))
     
@@ -67,6 +107,8 @@ def run_check():
     logger.debug('HTTP host: {}'.format(http_hostname))
     
     if http_path != '/':
+        # Only concatenate path if it is not '/', to avoid ugly URLs as
+        # this var will go straight to the DB...
         url = '{}/{}'.format(
             http_hostname,
             http_path
@@ -78,67 +120,43 @@ def run_check():
     http_regex = config.get('site', 'regex')
     logger.debug('HTTP regex: {}'.format(http_regex))
 
-    request_timeout = float(config.getint('site','timeout'))
-
-
-    # https://stackoverflow.com/questions/38174877/python-measuring-dns-and-roundtrip-time
-    dns_start = time.time()
-    site_ip = socket.gethostbyname(host)
-    dns_stop = time.time()
-    dns_elapsed = int(( dns_stop - dns_start ) * 1000000)
-
+    # Resolve host to ip
+    site_ip, dns_start, dns_elapsed = resolve_host(host)
     http_host_ip = "{}://{}/{}".format(
         http_schema,
         site_ip,
         http_path
     )
     logger.debug('HTTP Host IP: {}'.format(http_host_ip))
+    # END: Config to vars to generate a more readable code
     
 
-
+    # HTTP Request itself
     logger.info("Site to monitor: {}".format(url))
-    logger.debug("Regex to look for in site: {}".format(http_regex))
-
-
-
-    header = {'Host': host}
-
     logger.info("Accesing {}".format(url))
-
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-    r = None
-    s = requests.Session()
-    s.max_redirects = 0
-
-    # https://stackoverflow.com/questions/27234905/programmatically-access-virtual-host-site-from-ip-python-iis
-    try:
-        r = s.get(http_host_ip, headers=header, verify=False, allow_redirects=False, timeout=request_timeout)
-    except requests.exceptions.TooManyRedirects:
-        logger.error('Too many redirects. Please, be sure the host is not redirecting.')
-        # r = None
+    http_start, r = http_get(http_host_ip, host, url)
     
 
-
-
-        
-
+    # START: Prepare return msg
+    # Information will be stored in a dict and dumped into
+    # a json string
     msg = {
             'meta': {},
             'dns': {},
             'http': {}
     }
 
-    msg['meta']['start'] = dns_start
     msg['meta']['host'] = host
 
+    msg['http']['start'] = http_start
     msg['http']['schema'] = http_schema
     msg['http']['host'] = http_hostname
     msg['http']['path'] = http_path
     msg['http']['url'] = url
-
     msg['http']['regex'] = http_regex
 
+
+    msg['dns']['start'] = dns_start
     msg['dns']['elapsed'] = dns_elapsed
     msg['dns']['ip'] = site_ip
 
@@ -153,24 +171,27 @@ def run_check():
         if r.status_code == 200:
             if re.findall(http_regex, r.text):
                 regex_found = True
-                logger.info("Regex found!")
+                logger.debug("Regex found!")
         msg['http']['regex_found'] = regex_found
 
         if r.status_code >= 400 and r.status_code <= 599:
-            logger.error("Host could not be retrieved")
+            logger.error("Host could not be retrieved [{}]".format(r.status_code))
 
         r.close()
 
     else:
+        # If there is no request information
         logger.error('Site {} is not accesible.'.format(url))
-
         msg['http']['status_code'] = 0
         msg['http']['elapsed'] = None
-        msg['http']['reason'] = None
+        msg['http']['reason'] = "Request failed. Check logs."
         msg['http']['regex_found'] = None
         msg['http']['location'] = None
 
+    # END: Prepare return msg
 
+
+    # Send msg to kafka producer
     produce_message(json.dumps(msg))
 
 
@@ -229,6 +250,7 @@ if __name__ == "__main__":
     parser = EnvConfigParser()
     config = parser.get_parser('producer.cfg', config_default)
 
+    # Created here the object so it is available in the whole module
     kafka_producer = get_producer()
 
     # Run main
