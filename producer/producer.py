@@ -47,10 +47,20 @@ def setup_logger(log_sink, log_level):
     )
 
 
+def resolve_host(host):
+    # The idea is to know how long takes the dns request to, in case of an increase in the total response time,
+    # having enough info to know if it is because of the DNS or the http
+    dns_start = time.time()
+    ip = socket.gethostbyname(host)
+    dns_stop = time.time()
+    elapsed = int(( dns_stop - dns_start ) * 1000000)
+    return ip, elapsed
+
+
 
 def run_check():
 
-    # GenerDefining vars to generate a more readable code
+    # Config to vars to generate a more readable code
     host = config.get('site', 'host')
     logger.debug('Host: {}'.format(host))
     
@@ -79,13 +89,13 @@ def run_check():
     logger.debug('HTTP regex: {}'.format(http_regex))
 
     request_timeout = float(config.getint('site','timeout'))
+    logger.debug('HTTP timeout: {}'.format(request_timeout))
 
 
-    # https://stackoverflow.com/questions/38174877/python-measuring-dns-and-roundtrip-time
-    dns_start = time.time()
-    site_ip = socket.gethostbyname(host)
-    dns_stop = time.time()
-    dns_elapsed = int(( dns_stop - dns_start ) * 1000000)
+
+    site_ip, dns_elapsed = resolve_host(host)
+
+
 
     http_host_ip = "{}://{}/{}".format(
         http_schema,
