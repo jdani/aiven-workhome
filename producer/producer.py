@@ -78,6 +78,8 @@ def run_check():
     http_regex = config.get('site', 'regex')
     logger.debug('HTTP regex: {}'.format(http_regex))
 
+    request_timeout = float(config.getint('site','timeout'))
+
 
     # https://stackoverflow.com/questions/38174877/python-measuring-dns-and-roundtrip-time
     dns_start = time.time()
@@ -104,14 +106,22 @@ def run_check():
     logger.info("Accesing {}".format(url))
 
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+    r = None
+    s = requests.Session()
+    s.max_redirects = 0
+
     # https://stackoverflow.com/questions/27234905/programmatically-access-virtual-host-site-from-ip-python-iis
-    r = requests.get(http_host_ip, headers=header, verify=False)
-    regex_found = False
-    if r.status_code == 200:
-        if re.findall(http_regex, r.text):
-            regex_found = True
-            logger.info("Regex found!")
+    try:
+        r = s.get(http_host_ip, headers=header, verify=False, allow_redirects=False, timeout=request_timeout)
+    except requests.exceptions.TooManyRedirects:
+        logger.error('Too many redirects. Please, be sure the host is not redirecting.')
+        # r = None
     
+
+
+
+        
 
     msg = {
             'meta': {},
@@ -126,18 +136,40 @@ def run_check():
     msg['http']['host'] = http_hostname
     msg['http']['path'] = http_path
     msg['http']['url'] = url
-    msg['http']['status_code'] = r.status_code
-    msg['http']['elapsed'] = r.elapsed.microseconds
+
     msg['http']['regex'] = http_regex
-    msg['http']['regex_found'] = regex_found
 
     msg['dns']['elapsed'] = dns_elapsed
     msg['dns']['ip'] = site_ip
 
-    r.close()
+    if r:
+        msg['http']['status_code'] = r.status_code
+        msg['http']['elapsed'] = r.elapsed.microseconds
+        msg['http']['reason'] = r.reason
+        msg['http']['location'] = r.url
 
-    if msg['http']['status_code'] >= 400 and msg['http']['status_code'] <= 599:
-        logger.error("Host could not be retrieved")
+
+        regex_found = False
+        if r.status_code == 200:
+            if re.findall(http_regex, r.text):
+                regex_found = True
+                logger.info("Regex found!")
+        msg['http']['regex_found'] = regex_found
+
+        if r.status_code >= 400 and r.status_code <= 599:
+            logger.error("Host could not be retrieved")
+
+        r.close()
+
+    else:
+        logger.error('Site {} is not accesible.'.format(url))
+
+        msg['http']['status_code'] = 0
+        msg['http']['elapsed'] = None
+        msg['http']['reason'] = None
+        msg['http']['regex_found'] = None
+        msg['http']['location'] = None
+
 
     produce_message(json.dumps(msg))
 
@@ -191,6 +223,7 @@ if __name__ == "__main__":
         'SITE_HTTP_SCHEMA': 'https',
         'SITE_HOST': 'example.net',
         'SITE_PATH': '/',
+        'SITE_TIMEOUT': 1,
     }
 
     parser = EnvConfigParser()
