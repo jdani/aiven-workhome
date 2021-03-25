@@ -6,6 +6,10 @@ import socket
 import time
 import json
 import psycopg2
+from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
+from psycopg2.extensions import ISOLATION_LEVEL_DEFAULT
+
+
 from kafka import KafkaConsumer
 from envconfigparser import EnvConfigParser 
 from loguru import logger
@@ -109,8 +113,7 @@ if __name__ == "__main__":
     config_default = {
         'AIVEN_LOG_PATH': 'stdout',
         'AIVEN_LOG_LEVEL': 'INFO',
-        'AIVEN_DELAY': 5,
-        'POSTGRESQL_DB': 'http-monitor'
+        'AIVEN_DELAY': 5
     }
 
     parser = EnvConfigParser()
