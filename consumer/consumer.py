@@ -21,6 +21,19 @@ def read_uri_file(urifile):
     return uri
 
 
+def exist_table(table):
+    cursor = db_conn.cursor()
+    # https://stackoverflow.com/questions/10598002/how-do-i-get-tables-in-postgres-using-psycopg2
+    cursor.execute("""
+        select exists(select relname from pg_class where relname='%(table)s')
+    """ % {'table': table}
+    )
+    exists = cursor.fetchone()[0]
+    cursor.close()
+    return exists
+
+
+
 
 def get_consumer():
     # https://github.com/aiven/aiven-examples/blob/master/kafka/python/consumer_example.py
@@ -109,6 +122,9 @@ def main():
 
 if __name__ == "__main__":
     
+    # DEFAULTS
+    TABLE_NAME = "checks"
+
     # Load config here so config object is available in the whole module
     config_default = {
         'AIVEN_LOG_PATH': 'stdout',
@@ -123,6 +139,13 @@ if __name__ == "__main__":
 
     postgresql_uri = read_uri_file(config.get('postgresql', 'uri_file'))
     db_conn = psycopg2.connect(postgresql_uri)
+
+    if not exist_table(TABLE_NAME):
+        logger.info("Table '{}' not found, trying to create it.".format(TABLE_NAME))
+        # create_table(TABLE_NAME)
+        logger.info("Table '{}' created.".format(TABLE_NAME))
+    else:
+        logger.debug("Table '{}' exists.".format(TABLE_NAME))
 
     # Run main
     main()
