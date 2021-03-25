@@ -21,3 +21,11 @@ To get this idea working I wrote a sime class that:
 
 ## What to improve
 1. feature to define mandatory config vars and type/casting
+1. Accept postgresql connection data separately and not only in a uri
+1. Do some kind of config check (is the db name included in the uri?)
+
+
+
+
+
+TABLE WITH THE DIFFERENT NAMES OF FIELDS IN DIFFERENT PARTS, CONFIG FILE, ENV VARS, JSON AND DATABASE
