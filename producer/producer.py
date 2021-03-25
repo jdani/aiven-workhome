@@ -164,7 +164,6 @@ def run_check():
         msg['http']['status_code'] = r.status_code
         msg['http']['elapsed'] = r.elapsed.microseconds
         msg['http']['reason'] = r.reason
-        msg['http']['location'] = r.url
 
 
         regex_found = False
@@ -186,12 +185,11 @@ def run_check():
         msg['http']['elapsed'] = None
         msg['http']['reason'] = "Request failed. Check logs."
         msg['http']['regex_found'] = None
-        msg['http']['location'] = None
 
     # END: Prepare return msg
 
 
-    # Send msg to kafka producer
+    # Send msg to kafka producer as a json string
     produce_message(json.dumps(msg))
 
 
