@@ -12,7 +12,7 @@ from loguru import logger
 
 
 def read_uri_file(urifile):
-    with open('/usr/share/postgresql/uri.txt', 'r') as cfg_file:
+    with open(urifile, 'r') as cfg_file:
         uri = cfg_file.read().strip()
     return uri
 
@@ -142,16 +142,16 @@ def get_consumer(server, cafile, certfile, keyfile, topic):
 
 
 
-def insert_into_db(conn, json_msg):
+def insert_into_db(conn, table_name, json_msg):
     cursor = conn.cursor()
     msg = json.loads(json_msg)
-    insert_query = build_insert_query(msg)
+    insert_query = build_insert_query(table_name, msg)
     cursor.execute(insert_query)
     cursor.close()
 
 
 
-def build_insert_query(msg):
+def build_insert_query(table_name, msg):
     query = """
         INSERT INTO {} (
             host,
@@ -185,11 +185,11 @@ def build_insert_query(msg):
             {http[regex_found]}
         )
     """.format(
-        config.get('postgresql', 'table_name'),
+        table_name,
         **msg
     )
 
-    return query
+    return query.strip()
 
 
 
@@ -228,6 +228,7 @@ def main():
     uri_file = config.get('postgresql', 'uri_file')
     logger.info("Reading uri from file {}".format(uri_file))
     uri = read_uri_file(uri_file)
+    table_name = config.get('postgresql', 'table_name')
 
     logger.info("Stablishing DB connection")
     conn = get_db_conn(uri)
@@ -271,7 +272,7 @@ def main():
             for message in kafka_consumer:
                 logger.debug("Processing msg {}".format(message.offset))
                 # Insert mesages into the db
-                insert_into_db(conn, message.value.decode('utf-8'))
+                insert_into_db(conn, table_name, message.value.decode('utf-8'))
                 msg_count += 1
             logger.info("Messages processed in this iteration: {}".format(msg_count))
 
