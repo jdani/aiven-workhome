@@ -10,7 +10,7 @@ import time
 import json
 import threading
 from kafka import KafkaProducer
-from envconfigparser import EnvConfigParser 
+from common.envconfigparser import EnvConfigParser
 from loguru import logger
 
 
@@ -61,7 +61,7 @@ def resolve_host(host):
 
 
 
-def http_get(http_host_ip, host, url):
+def http_get(http_host_ip, host, request_timeout):
     # The idea is to access an http service by IP and avoid any DNS request. This does not work in most cases, where multiple domains
     # are served behind the same IP using virtual hosts. So it is needed to define the host in the header.
     # https://stackoverflow.com/questions/27234905/programmatically-access-virtual-host-site-from-ip-python-iis
@@ -75,7 +75,6 @@ def http_get(http_host_ip, host, url):
     s = requests.Session()
     s.max_redirects = 0
 
-    request_timeout = float(config.getint('site','timeout'))
     logger.debug('HTTP timeout: {}'.format(request_timeout))
     # https://stackoverflow.com/questions/27234905/programmatically-access-virtual-host-site-from-ip-python-iis
     http_start = time.time()
@@ -128,13 +127,15 @@ def run_check():
         http_path
     )
     logger.debug('HTTP Host IP: {}'.format(http_host_ip))
+
+    http_timeout = float(config.getint('site','timeout'))
     # END: Config to vars to generate a more readable code
     
 
     # HTTP Request itself
     logger.info("Site to monitor: {}".format(url))
     logger.info("Accesing {}".format(url))
-    http_start, r = http_get(http_host_ip, host, url)
+    http_start, r = http_get(http_host_ip, host, http_timeout)
     
 
     # START: Prepare return msg
