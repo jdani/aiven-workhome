@@ -14,14 +14,14 @@ from common.envconfigparser import EnvConfigParser
 from loguru import logger
 
 
-def get_producer():
+def get_producer(uri, cafile, certfile, keyfile):
     # https://github.com/aiven/aiven-examples/blob/master/kafka/python/producer_example.py
     producer = KafkaProducer(
-        bootstrap_servers=config.get('kafka', 'uri'),
+        bootstrap_servers=uri,
         security_protocol="SSL",
-        ssl_cafile=config.get('kafka', 'ssl_cafile'),
-        ssl_certfile=config.get('kafka', 'ssl_certfile'),
-        ssl_keyfile=config.get('kafka', 'ssl_keyfile'),
+        ssl_cafile=cafile,
+        ssl_certfile=certfile,
+        ssl_keyfile=keyfile,
     )
     return producer
 
@@ -86,24 +86,22 @@ def http_get(http_host_ip, host, request_timeout):
     return http_start, r
 
 
+# This long list of parameters indicates clearly something. It can be:
+#   - that this should be grouped in a class
+#   - there is a better way to manage this info
+def run_check_and_produce(producer, host, http_schema, http_path, http_regex, http_timeout):
 
-def run_check():
+    msg = run_check(host, http_schema, http_path, http_regex, http_timeout)
 
-    # START: Config to vars to generate a more readable code
-    host = config.get('site', 'host')
-    logger.debug('Host: {}'.format(host))
-    
-    http_schema = config.get('site', 'http_schema')
-    logger.debug('HTTP schema: {}'.format(http_schema))
-    
-    http_path = config.get('site', 'path')
-    logger.debug('HTTP path: {}'.format(http_path))
-    
+    # Send msg to kafka producer as a json string
+    produce_message(producer, json.dumps(msg))
+
+
+def run_check(host, http_schema, http_path, http_regex, http_timeout):
     http_hostname = "{}://{}".format(
         http_schema,
         host
     )
-    logger.debug('HTTP host: {}'.format(http_hostname))
     
     if http_path != '/':
         # Only concatenate path if it is not '/', to avoid ugly URLs as
@@ -114,10 +112,6 @@ def run_check():
         )
     else:
         url = http_hostname
-    logger.debug('URL: {}'.format(url))
-
-    http_regex = config.get('site', 'regex')
-    logger.debug('HTTP regex: {}'.format(http_regex))
 
     # Resolve host to ip
     site_ip, dns_start, dns_elapsed = resolve_host(host)
@@ -128,9 +122,6 @@ def run_check():
     )
     logger.debug('HTTP Host IP: {}'.format(http_host_ip))
 
-    http_timeout = float(config.getint('site','timeout'))
-    # END: Config to vars to generate a more readable code
-    
 
     # HTTP Request itself
     logger.info("Site to monitor: {}".format(url))
@@ -189,14 +180,11 @@ def run_check():
 
     # END: Prepare return msg
 
-
-    # Send msg to kafka producer as a json string
-    produce_message(json.dumps(msg))
+    return msg
 
 
-
-def produce_message(message):
-    kafka_producer.send(config.get('kafka', 'topic'), message.encode("utf-8"))
+def produce_message(producer, message):
+    producer.send(config.get('kafka', 'topic'), message.encode("utf-8"))
 
 
 
@@ -207,10 +195,42 @@ def main():
 
     logger.info('Using config file: {}'.format('producer.cfg'))
 
+    
+    kafka_uri = config.get('kafka', 'uri'),
+    kafk_cafile = config.get('kafka', 'ssl_cafile')
+    kafka_certfile = config.get('kafka', 'ssl_certfile')
+    kafka_keyfile = config.get('kafka', 'ssl_keyfile')
+
+    kafka_producer = get_producer(
+        kafka_uri,
+        kafk_cafile,
+        kafka_certfile,
+        kafka_keyfile
+    )
+
     try:
         loop_delay = config.getint('aiven', 'delay')
     except Exception:
         loop_delay = config_default['AIVEN_DELAY']
+
+
+    # START: ConGathering vars for the check and produce
+    host = config.get('site', 'host')
+    logger.debug('Host: {}'.format(host))
+    
+    http_schema = config.get('site', 'http_schema')
+    logger.debug('HTTP schema: {}'.format(http_schema))
+    
+    http_path = config.get('site', 'path')
+    logger.debug('HTTP path: {}'.format(http_path))
+
+    http_regex = config.get('site', 'regex')
+    logger.debug('HTTP regex: {}'.format(http_regex))
+
+    http_timeout = float(config.getint('site','timeout'))
+    # END: ConGathering vars for the check and produce
+
+
     
     while True:
         try:
@@ -218,7 +238,14 @@ def main():
             # Running the check in a separated thread makes the check run more regularly and close
             # to the delay defined in config['aiven']['delay']. This way the time that takes the check itself
             # is not accumulated to the config delay.
-            x = threading.Thread(target=run_check)
+            x = threading.Thread(target=run_check_and_produce, args=(
+                kafka_producer,
+                host,
+                http_schema,
+                http_path,
+                http_regex,
+                http_timeout
+            ))
             x.start()
             time.sleep(loop_delay)
 
@@ -246,9 +273,6 @@ if __name__ == "__main__":
 
     parser = EnvConfigParser()
     config = parser.get_parser('producer.cfg', config_default)
-
-    # Created here the object so it is available in the whole module
-    kafka_producer = get_producer()
 
     # Run main
     main()
