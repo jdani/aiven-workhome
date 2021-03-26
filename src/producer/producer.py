@@ -201,8 +201,6 @@ def produce_message(message):
 
 
 def main():
-
-
     log_sink = config.get('aiven', 'log_path')
     log_level = config.get('aiven', 'log_level').upper()
     setup_logger(log_sink, log_level)
