@@ -24,6 +24,8 @@ To get this idea working I wrote a sime class that:
 1. Accept postgresql connection data separately and not only in a uri
 1. Do some kind of config check (is the db name included in the uri?)
 1. Kafka consumer commit. Enable/Disable. Probably there are stuations where it is interesting to not commit the consumer and read every time from the beginning of the queue.
+1. http check could be implemented in a class. At first glance I understimated the complexity
+1. Receive config file path as parameter
 
 
 
