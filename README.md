@@ -17,7 +17,7 @@ To get this idea working I wrote a sime class that:
 ## Prerequisites
 1. kafka running and auto-create topic enabled
 1. Customize config files, particulary kafka and postgres config
-1. Note there is a common folder containing a bunch of files. These are the common modules for both, producer and consumer. It is needed to, after creating the virtualenv, add it to the PYTHONPATH by running `add2virtualenv common`.
+1. Note there is a common folder containing a bunch of files. These are the common modules for both, producer and consumer. It is needed to, after creating the virtualenv, add it to the PYTHONPATH by running `add2virtualenv $PROJECT_ROOT_PATH`.
 
 ## What to improve
 1. feature to define mandatory config vars and type/casting
@@ -32,3 +32,5 @@ To get this idea working I wrote a sime class that:
 
 
 TABLE WITH THE DIFFERENT NAMES OF FIELDS IN DIFFERENT PARTS, CONFIG FILE, ENV VARS, JSON AND DATABASE
+
+To manage high volume of data, threads are used

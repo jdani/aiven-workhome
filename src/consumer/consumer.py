@@ -6,6 +6,7 @@ import socket
 import time
 import json
 import psycopg2
+import threading
 from kafka import KafkaConsumer
 from common.envconfigparser import EnvConfigParser
 from loguru import logger
@@ -142,11 +143,14 @@ def get_consumer(server, cafile, certfile, keyfile, topic):
 
 
 
-def insert_into_db(conn, table_name, json_msg):
+def insert_into_db(conn, table_name, messages):
     cursor = conn.cursor()
-    msg = json.loads(json_msg)
-    insert_query = build_insert_query(table_name, msg)
-    cursor.execute(insert_query)
+    for msg in messages:
+        json_msg = msg.value.decode('utf-8')
+        msg = json.loads(json_msg)
+        insert_query = build_insert_query(table_name, msg)
+        cursor.execute(insert_query)
+    conn.commit()
     cursor.close()
 
 
@@ -268,25 +272,25 @@ def main():
         logger.debug("Main loop iteration starts")
         try:
             logger.info("Checking for new messages...")
-            msg_count = 0
+            messages = []
             for message in kafka_consumer:
-                logger.debug("Processing msg {}".format(message.offset))
-                # Insert mesages into the db
-                insert_into_db(conn, table_name, message.value.decode('utf-8'))
-                msg_count += 1
-            logger.info("Messages processed in this iteration: {}".format(msg_count))
+                messages.append(message)
 
-            # Commit connecion to finish transaction
-            logger.debug("Commiting db connextion")
-            conn.commit()
+            logger.info("Messages processed in this iteration: {}".format(len(messages)))
 
-            logger.info("No more messages.")
-            
-            # Kafka consumer commited to save the last
-            # msg readed.
-            kafka_consumer.commit()
-            logger.debug("Consummer commited")
+            if messages:
+                logger.info("Processing messages")
+                # Kafka consumer commited to save the last msg readed
+                # only if new messages have been received. So not
+                # commiting if not needed
+                kafka_consumer.commit()
+                logger.debug("Consummer commited")
 
+                x = threading.Thread(
+                    target=insert_into_db,
+                    args=(conn, table_name, messages)
+                )
+                x.start()
 
             time.sleep(loop_delay)
 
