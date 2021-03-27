@@ -86,47 +86,37 @@ def http_get(http_host_ip, host, request_timeout):
     return http_start, r
 
 
-# This long list of parameters indicates clearly something. It can be:
-#   - that this should be grouped in a class
-#   - there is a better way to manage this info
-def run_check_and_produce(producer, host, http_schema, http_path, http_regex, http_timeout):
 
-    msg = run_check(host, http_schema, http_path, http_regex, http_timeout)
+def run_check_and_produce(producer, http_url, http_regex, http_timeout):
+
+    msg = run_check(http_url, http_regex, http_timeout)
 
     # Send msg to kafka producer as a json string
     produce_message(producer, json.dumps(msg))
 
 
-def run_check(host, http_schema, http_path, http_regex, http_timeout):
-    http_hostname = "{}://{}".format(
-        http_schema,
-        host
-    )
-    
-    if http_path != '/':
-        # Only concatenate path if it is not '/', to avoid ugly URLs as
-        # this var will go straight to the DB...
-        url = '{}/{}'.format(
-            http_hostname,
-            http_path
-        )
-    else:
-        url = http_hostname
+def run_check(http_url, http_regex, http_timeout):
+    url = urllib3.util.parse_url(http_url)
 
     # Resolve host to ip
-    site_ip, dns_start, dns_elapsed = resolve_host(host)
-    http_host_ip = "{}://{}/{}".format(
-        http_schema,
-        site_ip,
-        http_path
+    site_ip, dns_start, dns_elapsed = resolve_host(url.host)
+
+    http_host_ip = str(url).replace(
+        "{}://{}".format(
+            url.scheme,
+            url.host
+        ),
+        "{}://{}".format(
+            url.scheme,
+            site_ip
+        )
     )
     logger.debug('HTTP Host IP: {}'.format(http_host_ip))
 
 
     # HTTP Request itself
-    logger.info("Site to monitor: {}".format(url))
-    logger.info("Accesing {}".format(url))
-    http_start, r = http_get(http_host_ip, host, http_timeout)
+    logger.info("Accesing {}".format(str(url)))
+    http_start, r = http_get(http_host_ip, url.host, http_timeout)
     
 
     # START: Prepare return msg
@@ -138,13 +128,13 @@ def run_check(host, http_schema, http_path, http_regex, http_timeout):
             'http': {}
     }
 
-    msg['meta']['host'] = host
+    msg['meta']['host'] = url.host
 
     msg['http']['start'] = http_start
-    msg['http']['schema'] = http_schema
-    msg['http']['host'] = http_hostname
-    msg['http']['path'] = http_path
-    msg['http']['url'] = url
+    msg['http']['schema'] = url.scheme
+    msg['http']['host'] = url.host
+    msg['http']['path'] = url.path
+    msg['http']['url'] = str(url)
     msg['http']['regex'] = http_regex
 
 
@@ -214,21 +204,14 @@ def main():
         loop_delay = config_default['AIVEN_DELAY']
 
 
-    # START: ConGathering vars for the check and produce
-    host = config.get('site', 'host')
-    logger.debug('Host: {}'.format(host))
-    
-    http_schema = config.get('site', 'http_schema')
-    logger.debug('HTTP schema: {}'.format(http_schema))
-    
-    http_path = config.get('site', 'path')
-    logger.debug('HTTP path: {}'.format(http_path))
+    http_url = config.get('site', 'url')
+    logger.debug('HTTP URL: {}'.format(http_url))
 
     http_regex = config.get('site', 'regex')
     logger.debug('HTTP regex: {}'.format(http_regex))
 
     http_timeout = float(config.getint('site','timeout'))
-    # END: ConGathering vars for the check and produce
+    logger.debug('HTTP Timeout: {}'.format(http_timeout))
 
 
     
@@ -240,9 +223,7 @@ def main():
             # is not accumulated to the config delay.
             x = threading.Thread(target=run_check_and_produce, args=(
                 kafka_producer,
-                host,
-                http_schema,
-                http_path,
+                http_url,
                 http_regex,
                 http_timeout
             ))
@@ -265,9 +246,7 @@ if __name__ == "__main__":
         'AIVEN_LOG_PATH': 'stdout',
         'AIVEN_LOG_LEVEL': 'INFO',
         'AIVEN_DELAY': 5,
-        'SITE_HTTP_SCHEMA': 'https',
-        'SITE_HOST': 'example.net',
-        'SITE_PATH': '/',
+        'SITE_URL': 'https://example.net',
         'SITE_TIMEOUT': 1,
     }
 
