@@ -1,14 +1,9 @@
 #!/usr/bin/env python3
-
 import os
-import requests
-import urllib3
 import sys
-import re
-import socket
-import time
-import json
 import threading
+import time
+from httpchecker import HTTPChecker
 from kafka import KafkaProducer
 from common.envconfigparser import EnvConfigParser
 from loguru import logger
@@ -50,127 +45,14 @@ def setup_logger(log_sink, log_level):
 
 
 
-def resolve_host(host):
-    # The idea is to know how long takes the dns request to, in case of an increase in the total response time,
-    # having enough info to know if it is because of the DNS or the http
-    dns_start = time.time()
-    ip = socket.gethostbyname(host)
-    dns_stop = time.time()
-    elapsed = int(( dns_stop - dns_start ) * 1000000)
-    return ip, dns_start, elapsed
-
-
-
-def http_get(http_host_ip, host, request_timeout):
-    # The idea is to access an http service by IP and avoid any DNS request. This does not work in most cases, where multiple domains
-    # are served behind the same IP using virtual hosts. So it is needed to define the host in the header.
-    # https://stackoverflow.com/questions/27234905/programmatically-access-virtual-host-site-from-ip-python-iis
-
-    header = {'Host': host}
-
-    # Disable non-checking certificate warnings
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-    r = None
-    s = requests.Session()
-    s.max_redirects = 0
-
-    logger.debug('HTTP timeout: {}'.format(request_timeout))
-    # https://stackoverflow.com/questions/27234905/programmatically-access-virtual-host-site-from-ip-python-iis
-    http_start = time.time()
-    try:
-        r = s.get(http_host_ip, headers=header, verify=False, allow_redirects=False, timeout=request_timeout)
-    except requests.exceptions.TooManyRedirects:
-        logger.error('Too many redirects. Please, be sure the host is not redirecting.')
-
-    return http_start, r
-
-
-
-def run_check_and_produce(producer, http_url, http_regex, http_timeout):
-
-    msg = run_check(http_url, http_regex, http_timeout)
+def check_and_produce_wrapper(producer, site):
+    # Wrapper function to be called by the new thread
+    # Run check
+    msg = site.run_check()
 
     # Send msg to kafka producer as a json string
-    produce_message(producer, json.dumps(msg))
+    produce_message(producer, msg)
 
-
-def run_check(http_url, http_regex, http_timeout):
-    url = urllib3.util.parse_url(http_url)
-
-    # Resolve host to ip
-    site_ip, dns_start, dns_elapsed = resolve_host(url.host)
-
-    http_host_ip = str(url).replace(
-        "{}://{}".format(
-            url.scheme,
-            url.host
-        ),
-        "{}://{}".format(
-            url.scheme,
-            site_ip
-        )
-    )
-    logger.debug('HTTP Host IP: {}'.format(http_host_ip))
-
-
-    # HTTP Request itself
-    logger.info("Accesing {}".format(str(url)))
-    http_start, r = http_get(http_host_ip, url.host, http_timeout)
-    
-
-    # START: Prepare return msg
-    # Information will be stored in a dict and dumped into
-    # a json string
-    msg = {
-            'meta': {},
-            'dns': {},
-            'http': {}
-    }
-
-    msg['meta']['host'] = url.host
-
-    msg['http']['start'] = http_start
-    msg['http']['schema'] = url.scheme
-    msg['http']['host'] = url.host
-    msg['http']['path'] = url.path
-    msg['http']['url'] = str(url)
-    msg['http']['regex'] = http_regex
-
-
-    msg['dns']['start'] = dns_start
-    msg['dns']['elapsed'] = dns_elapsed
-    msg['dns']['ip'] = site_ip
-
-    if r:
-        msg['http']['status_code'] = r.status_code
-        msg['http']['elapsed'] = r.elapsed.microseconds
-        msg['http']['reason'] = r.reason
-
-
-        regex_found = False
-        if r.status_code == 200:
-            if re.findall(http_regex, r.text):
-                regex_found = True
-                logger.debug("Regex found!")
-        msg['http']['regex_found'] = regex_found
-
-        if r.status_code >= 400 and r.status_code <= 599:
-            logger.error("Host could not be retrieved [{}]".format(r.status_code))
-
-        r.close()
-
-    else:
-        # If there is no request information
-        logger.error('Site {} is not accesible.'.format(url))
-        msg['http']['status_code'] = 0
-        msg['http']['elapsed'] = None
-        msg['http']['reason'] = "Request failed. Check logs."
-        msg['http']['regex_found'] = None
-
-    # END: Prepare return msg
-
-    return msg
 
 
 def produce_message(producer, message):
@@ -198,34 +80,31 @@ def main():
         kafka_keyfile
     )
 
-    try:
-        loop_delay = config.getint('aiven', 'delay')
-    except Exception:
-        loop_delay = config_default['AIVEN_DELAY']
-
-
+    loop_delay = config.getint('aiven', 'delay')
+    
     http_url = config.get('site', 'url')
     logger.debug('HTTP URL: {}'.format(http_url))
 
     http_regex = config.get('site', 'regex')
     logger.debug('HTTP regex: {}'.format(http_regex))
 
-    http_timeout = float(config.getint('site','timeout'))
+    http_timeout = float(config.getint('site', 'timeout'))
     logger.debug('HTTP Timeout: {}'.format(http_timeout))
 
+    site = HTTPChecker(
+        http_url,
+        http_timeout,
+        regex=http_regex
+    )
 
-    
     while True:
         try:
-            
             # Running the check in a separated thread makes the check run more regularly and close
             # to the delay defined in config['aiven']['delay']. This way the time that takes the check itself
             # is not accumulated to the config delay.
-            x = threading.Thread(target=run_check_and_produce, args=(
+            x = threading.Thread(target=check_and_produce_wrapper, args=(
                 kafka_producer,
-                http_url,
-                http_regex,
-                http_timeout
+                site
             ))
             x.start()
             time.sleep(loop_delay)
@@ -238,9 +117,7 @@ def main():
             sys.exit(1)
 
 
-
 if __name__ == "__main__":
-    
     # Load config here so config object is available in the whole module
     config_default = {
         'AIVEN_LOG_PATH': 'stdout',
