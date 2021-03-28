@@ -31,7 +31,7 @@ class ChecksDB:
         return conn
 
 
-    def __create_table(self):
+    def __create_table(self, table):
         # https://www.postgresqltutorial.com/postgresql-python/create-tables/
         create_table_sql = """
         CREATE TABLE {} (
@@ -51,7 +51,8 @@ class ChecksDB:
             http_status_code_reason VARCHAR(512),
             http_retgex_found BOOLEAN
             )
-        """
+        """.format(table)
+
         create_table_sql = create_table_sql.replace("\n", " ").strip()
         logger.debug("Create table SQL: {}".format(create_table_sql))
         cursor = self.conn.cursor()
@@ -126,6 +127,22 @@ class ChecksDB:
         return insert_query.strip()
 
 
+    def count_rows(self, table):
+        cursor = self.conn.cursor()
+        query = "SELECT COUNT(*) FROM {};".format(table)
+        cursor.execute(query)
+        count = cursor.fetchone()[0]
+        cursor.close()
+        return count
+
+
+    def drop_table(self, table):
+        cursor = self.conn.cursor()
+        count = cursor.execute("DROP TABLE IF EXISTS {};".format(table))
+        cursor.close()
+        return count
+
+
     def insert_json_messages(self, json_messages):
         if json_messages:
             insert_query = self.__get_insert_query(json_messages)
@@ -133,7 +150,6 @@ class ChecksDB:
             cursor.execute(insert_query)
             self.conn.commit()
             cursor.close()
-
 
 
     def close(self):

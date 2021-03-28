@@ -1,6 +1,10 @@
 import pytest
-from consumer import consumer
+import json
+import string
+import random
+from consumer.checksdb import ChecksDB
 from common.envconfigparser import EnvConfigParser
+
 
 @pytest.fixture()
 def config():
@@ -16,12 +20,12 @@ def config():
 
 
 @pytest.fixture()
-def msg():
+def messages():
     msg = {
-                'meta': {},
-                'dns': {},
-                'http': {}
-        }
+        'meta': {},
+        'dns': {},
+        'http': {}
+    }
 
     msg['meta']['host'] = 'testhost'
 
@@ -36,56 +40,23 @@ def msg():
     msg['http']['status_code'] = 1
     msg['http']['reason'] = 'test code'
 
-
     msg['dns']['start'] = 1
     msg['dns']['elapsed'] = 2
     msg['dns']['ip'] = '1.2.3.4'
-    yield msg
 
-@pytest.fixture()
-def test_insert_query():
-    q = r"""
-    INSERT INTO testtable (
-            host,
-            dns_start,
-            dns_elapsed,
-            ip,
-            http_start,
-            http_elapsed,
-            http_schema,
-            http_url_root,
-            http_path,
-            http_url,
-            http_regex,
-            http_status_code,
-            http_status_code_reason,
-            http_retgex_found
-        ) VALUES (
-            'testhost',
-            1,
-            2,
-            '1.2.3.4',
-            1,
-            1,
-            'https',
-            'test',
-            '/',
-            'test-url',
-            '\dfdf',
-            1,
-            'test code',
-            True
-        )
-        """
-    yield q.strip()
+    yield [json.dumps(msg)]
 
 
-def test_read_uri_file():
-    uri_string = consumer.read_uri_file('urifile.test')
-    uri_test = "this is just a testing text"
-    assert uri_test == uri_string
+def test_ChecksDB(config, messages):
+    random_string = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
 
+    test_table = 'testtable' + '_' + random_string
+    urifile = config.get('postgresql', 'uri_file')
+    db = ChecksDB(urifile, test_table)
+    assert db.conn.closed == False
 
-def test_build_insert_query(msg, test_insert_query):
-    query = consumer.build_insert_query('testtable', msg)
-    assert query == test_insert_query
+    db.insert_json_messages(messages)
+    assert db.count_rows(test_table) == 1
+    db.drop_table(test_table)
+    db.close()
+    assert db.conn.closed == True

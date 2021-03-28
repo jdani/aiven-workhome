@@ -1,32 +1,27 @@
 import pytest
 import re
+import json
 from time import struct_time, gmtime
-from requests.models import Response
-from producer import producer
-from common.envconfigparser import EnvConfigParser
+from producer.httpchecker import HTTPChecker
 
 
-def test_resolve_host():
-    ip, start, elapsed = producer.resolve_host('example.net')
-    
-    assert bool(re.match(r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}', ip)) == True
-    assert type(gmtime(start)) is struct_time
-    assert type(elapsed) is int
-    assert elapsed > 0
 
 
-def test_http_get():
+@pytest.fixture()
+def url():
+    check_url = 'https://example.net' 
+    yield check_url
 
-    host = 'example.net'
-    http_schema = 'https'
-    timeout = 5
-    ip, _, _ = producer.resolve_host(host)
-    url_ip = '{}://{}'.format(
-        http_schema,
-        ip
-    )
 
-    start, req = producer.http_get(url_ip, host, timeout)
+def test_HTTPChecker(url):
+    site = HTTPChecker(url, 1)
+    msg = site.run_check()
+    assert bool(re.match(r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}', site.ip)) == True
+    assert type(gmtime(site.http_start)) is struct_time
+    assert type(site.http_elapsed) is int
+    assert site.http_elapsed > 0
 
-    assert type(gmtime(start)) is struct_time
-    assert type(req) is Response
+    json_msg = json.loads(msg)
+    assert type(json_msg) is dict
+
+

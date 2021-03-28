@@ -18,6 +18,7 @@ To get this idea working I wrote a sime class that:
 1. kafka running and auto-create topic enabled
 1. Customize config files, particulary kafka and postgres config
 1. Note there is a common folder containing a bunch of files. These are the common modules for both, producer and consumer. It is needed to, after creating the virtualenv, add it to the PYTHONPATH by running `add2virtualenv $PROJECT_ROOT_PATH`.
+1. Python 3.6 or above
 
 ## What to improve
 1. feature to define mandatory config vars and type/casting
@@ -26,6 +27,7 @@ To get this idea working I wrote a sime class that:
 1. Kafka consumer commit. Enable/Disable. Probably there are stuations where it is interesting to not commit the consumer and read every time from the beginning of the queue.
 1. http check could be implemented in a class. At first glance I understimated the complexity
 1. Receive config file path as parameter
+1. Didn't know of the json adapter included in psycopg2, so it could be used instead of writing it manually.
 
 
 
