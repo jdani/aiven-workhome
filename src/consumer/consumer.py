@@ -2,127 +2,12 @@
 
 import os
 import sys
-import socket
 import time
-import json
-import psycopg2
 import threading
+from checksdb import ChecksDB
 from kafka import KafkaConsumer
 from common.envconfigparser import EnvConfigParser
 from loguru import logger
-
-
-def read_uri_file(urifile):
-    with open(urifile, 'r') as cfg_file:
-        uri = cfg_file.read().strip()
-    return uri
-
-
-
-def exists_table(conn, table):
-    cursor = conn.cursor()
-    # https://stackoverflow.com/questions/10598002/how-do-i-get-tables-in-postgres-using-psycopg2
-    cursor.execute("""
-        select exists(select relname from pg_class where relname='{}')
-    """.format(table)
-    )
-    exists = cursor.fetchone()[0]
-    cursor.close()
-    return exists
-
-
-
-def create_table(conn, table):
-    # https://www.postgresqltutorial.com/postgresql-python/create-tables/
-    create_table_sql = """
-    CREATE TABLE {} (
-    """.format(table)
-
-    # id autoincremental as primary key
-    create_table_sql += """
-        id SERIAL PRIMARY KEY,
-    """
-
-    # host as string
-    create_table_sql += """
-        host VARCHAR(256),
-    """
-
-    # dns_start as float. When the http requests started
-    create_table_sql += """
-        dns_start FLOAT,
-    """
-
-    # dns_elapsed as int. Time elapsed in the dns query.
-    create_table_sql += """
-        dns_elapsed INT,
-    """
-
-    # ip as string. ip resolved for host as string.
-    create_table_sql += """
-        ip VARCHAR(15),
-    """    
-
-    # https_start as float. When the http requests started
-    create_table_sql += """
-        http_start FLOAT,
-    """
-
-    # http_elapsed as int. Time elapsed in the http query.
-    create_table_sql += """
-        http_elapsed INT,
-    """
-
-    # ip as string. ip resolved for host as string.
-    create_table_sql += """
-        http_schema VARCHAR(10),
-    """
-
-    # http_url_root as char. url root, without path.
-    create_table_sql += """
-        http_url_root VARCHAR(256),
-    """
-
-    # http_path as char. url path part.
-    create_table_sql += """
-        http_path VARCHAR(256),
-    """
-
-    # url as char. complete utl.
-    create_table_sql += """
-        http_url VARCHAR(512),
-    """
-
-    # http_regex as string. regex to apply to the respose of the query.
-    create_table_sql += """
-        http_regex VARCHAR(512),
-    """
-
-    # http_status_code as int. request status code.
-    create_table_sql += """
-        http_status_code INT,
-    """
-
-    # http_status_code_reason as string. status code reason.
-    create_table_sql += """
-        http_status_code_reason VARCHAR(512),
-    """
-
-   # http_retgex_found as boolean. status code reason.
-    create_table_sql += """
-        http_retgex_found BOOLEAN
-    """
-
-    create_table_sql += ")"
-
-    create_table_sql = create_table_sql.replace("\n", " ")
-
-    logger.debug("Create table SQL: {}".format(create_table_sql))
-
-    cursor = conn.cursor()
-    cursor.execute(create_table_sql)
-    cursor.close()
-
 
 
 def get_consumer(server, cafile, certfile, keyfile, topic):
@@ -142,61 +27,6 @@ def get_consumer(server, cafile, certfile, keyfile, topic):
     return consumer
 
 
-
-def insert_into_db(conn, table_name, messages):
-    cursor = conn.cursor()
-    for msg in messages:
-        json_msg = msg.value.decode('utf-8')
-        msg = json.loads(json_msg)
-        insert_query = build_insert_query(table_name, msg)
-        cursor.execute(insert_query)
-    conn.commit()
-    cursor.close()
-
-
-
-def build_insert_query(table_name, msg):
-    query = """
-        INSERT INTO {} (
-            host,
-            dns_start,
-            dns_elapsed,
-            ip,
-            http_start,
-            http_elapsed,
-            http_schema,
-            http_url_root,
-            http_path,
-            http_url,
-            http_regex,
-            http_status_code,
-            http_status_code_reason,
-            http_retgex_found
-        ) VALUES (
-            '{meta[host]}',
-            {dns[start]},
-            {dns[elapsed]},
-            '{dns[ip]}',
-            {http[start]},
-            {http[elapsed]},
-            '{http[schema]}',
-            '{http[host]}',
-            '{http[path]}',
-            '{http[url]}',
-            '{http[regex]}',
-            {http[status_code]},
-            '{http[reason]}',
-            {http[regex_found]}
-        )
-    """.format(
-        table_name,
-        **msg
-    )
-
-    return query.strip()
-
-
-
 def setup_logger(log_sink, log_level):
     # Remove default logger to prevent log twice every message
     logger.remove()
@@ -214,37 +44,17 @@ def setup_logger(log_sink, log_level):
 
     # Create new logger with new config
     logger.add(
-            log_sink,
-            level=log_level
+        log_sink,
+        level=log_level
     )
-
-
-
-def get_db_conn(psql_uri):
-    conn = psycopg2.connect(psql_uri)
-    return conn
 
 
 
 def main():
 
-    # Stablish db connection
     uri_file = config.get('postgresql', 'uri_file')
-    logger.info("Reading uri from file {}".format(uri_file))
-    uri = read_uri_file(uri_file)
-    table_name = config.get('postgresql', 'table_name')
-
-    logger.info("Stablishing DB connection")
-    conn = get_db_conn(uri)
-
-    # Create table if does not exist
-    table_name = config.get('postgresql','table_name')
-    if not exists_table(conn, table_name):
-        logger.info("Table '{}' not found, trying to create it.".format(table_name))
-        create_table(table_name)
-        logger.info("Table '{}' created.".format(table_name))
-    else:
-        logger.debug("Table '{}' exists.".format(table_name))
+    table = config.get('postgresql', 'table_name')
+    db = ChecksDB(uri_file, table)
 
     # Get kafka consumer
     logger.info("Getting kafka consumer")
@@ -261,12 +71,9 @@ def main():
         kafka_topic
     )
 
-    try:
-        loop_delay = config.getint('aiven', 'delay')
-    except Exception:
-        loop_delay = config_default['AIVEN_DELAY']
+    loop_delay = config.getint('aiven', 'delay')
     logger.debug("Delay between loop iterations: {}".format(loop_delay))
-    
+
     logger.info("Main loop started")
     while True:
         logger.debug("Main loop iteration starts")
@@ -274,23 +81,19 @@ def main():
             logger.info("Checking for new messages...")
             messages = []
             for message in kafka_consumer:
-                messages.append(message)
+                messages.append(message.value.decode('utf-8'))
 
             logger.info("Messages processed in this iteration: {}".format(len(messages)))
 
-            if messages:
-                logger.info("Processing messages")
-                # Kafka consumer commited to save the last msg readed
-                # only if new messages have been received. So not
-                # commiting if not needed
-                kafka_consumer.commit()
-                logger.debug("Consummer commited")
+            logger.info("Processing messages")
+            kafka_consumer.commit()
+            logger.debug("Consummer commited")
 
-                x = threading.Thread(
-                    target=insert_into_db,
-                    args=(conn, table_name, messages)
-                )
-                x.start()
+            x = threading.Thread(
+                target=db.insert_json_messages,
+                args=(messages, )
+            )
+            x.start()
 
             time.sleep(loop_delay)
 
@@ -302,8 +105,8 @@ def main():
             kafka_consumer.close()
 
             logger.info("Commiting pending actions to the db and closing the connection.")
-            conn.commit()
-            conn.close()
+            db.close()
+
 
             # Exit
             sys.exit(1)
@@ -313,8 +116,6 @@ def main():
 
 
 if __name__ == "__main__":
-    
-    
     # Load config here so config object is available in the whole module
     config_default = {
         'AIVEN_LOG_PATH': 'stdout',
