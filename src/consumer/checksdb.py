@@ -71,8 +71,35 @@ class ChecksDB:
         return exists
 
 
-    def __get_insert_query(self, msg):
-        query = """
+    def __get_insert_query(self, json_messages):
+        values_tmpl = """
+            (
+                '{meta[host]}',
+                {dns[start]},
+                {dns[elapsed]},
+                '{dns[ip]}',
+                {http[start]},
+                {http[elapsed]},
+                '{http[schema]}',
+                '{http[host]}',
+                '{http[path]}',
+                '{http[url]}',
+                '{http[regex]}',
+                {http[status_code]},
+                '{http[reason]}',
+                {http[regex_found]}
+            ),
+        """
+
+        values = ""
+        for json_msg in json_messages:
+            msg = json.loads(json_msg)
+            values += values_tmpl.format(**msg).strip()
+
+        # Removing trailing comma
+        values = values[:-1]
+
+        insert_query = """
             INSERT INTO {} (
                 host,
                 dns_start,
@@ -88,39 +115,25 @@ class ChecksDB:
                 http_status_code,
                 http_status_code_reason,
                 http_retgex_found
-            ) VALUES (
-                '{meta[host]}',
-                {dns[start]},
-                {dns[elapsed]},
-                '{dns[ip]}',
-                {http[start]},
-                {http[elapsed]},
-                '{http[schema]}',
-                '{http[host]}',
-                '{http[path]}',
-                '{http[url]}',
-                '{http[regex]}',
-                {http[status_code]},
-                '{http[reason]}',
-                {http[regex_found]}
-            )
+            ) VALUES
+                {}
+            ;
         """.format(
             self.table,
-            **msg
+            values.strip()
         )
 
-        return query.strip()
+        return insert_query.strip()
 
 
     def insert_json_messages(self, json_messages):
         if json_messages:
+            insert_query = self.__get_insert_query(json_messages)
             cursor = self.conn.cursor()
-            for json_msg in json_messages:
-                msg = json.loads(json_msg)
-                insert_query = self.__get_insert_query(msg)
-                cursor.execute(insert_query)
+            cursor.execute(insert_query)
             self.conn.commit()
             cursor.close()
+
 
 
     def close(self):

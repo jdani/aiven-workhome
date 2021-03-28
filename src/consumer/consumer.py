@@ -32,13 +32,13 @@ def setup_logger(log_sink, log_level):
     logger.remove()
 
     # If log path set to stdout or not to an absolute path, set stdout as logs sink
-    
+
     if not os.path.isabs(log_sink) or log_sink == 'stdout':
         log_sink = sys.stdout
 
     # If not a vald log level, set INFO
     log_valid_levels = "TRACE DEBUG INFO SUCCESS WARNING ERROR CRITICAL"
-    
+
     if log_level not in log_valid_levels.replace(' ', ''):
         log_level = 'INFO'
 
@@ -74,14 +74,35 @@ def main():
     loop_delay = config.getint('aiven', 'delay')
     logger.debug("Delay between loop iterations: {}".format(loop_delay))
 
+    max_inserts = config.getint('postgresql', 'max_rows_per_insert')
+
     logger.info("Main loop started")
     while True:
         logger.debug("Main loop iteration starts")
         try:
             logger.info("Checking for new messages...")
+            threads = []
             messages = []
             for message in kafka_consumer:
                 messages.append(message.value.decode('utf-8'))
+                if len(messages) == max_inserts:
+                    threads.append(
+                        threading.Thread(
+                            target=db.insert_json_messages,
+                            args=(messages, )
+                        ))
+                    threads[-1].start()
+                    messages = []
+
+            if messages:
+                threads.append(
+                    threading.Thread(
+                        target=db.insert_json_messages,
+                        args=(messages, )
+                    ))
+                threads[-1].start()
+
+
 
             logger.info("Messages processed in this iteration: {}".format(len(messages)))
 
