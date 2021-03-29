@@ -30,6 +30,7 @@ To get this idea working I wrote a sime class that:
 1. Didn't know of the json adapter included in psycopg2, so it could be used instead of writing it manually.
 1. Try to reconnect if connection to db is lost
 1. execute function to avoid cursor create, execute, close
+1. Remove possible duplicated log events
 
 
 
