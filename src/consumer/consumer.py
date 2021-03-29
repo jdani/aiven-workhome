@@ -24,6 +24,7 @@ def get_consumer(server, cafile, certfile, keyfile, topic):
     )
 
     consumer.subscribe([topic])
+    logger.info("Connected to kafka")
     return consumer
 
 
