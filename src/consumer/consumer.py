@@ -24,6 +24,7 @@ def get_consumer(server, cafile, certfile, keyfile, topic):
     )
 
     consumer.subscribe([topic])
+    logger.info("Connected to kafka")
     return consumer
 
 
@@ -49,12 +50,25 @@ def setup_logger(log_sink, log_level):
     )
 
 
-
 def main():
-
+    # Defining vars from config to be used
     uri_file = config.get('postgresql', 'uri_file')
+    logger.debug("DB URI FIle: {}".format(uri_file))
+
     table = config.get('postgresql', 'table_name')
+    logger.debug("Table name: {}".format(table))
+
+    loop_delay = config.getint('aiven', 'delay')
+    logger.debug("Delay between loop iterations: {}".format(loop_delay))
+
+    max_inserts = config.getint('postgresql', 'max_rows_per_insert')
+    logger.debug("Max row to be inserted in the same query: {}".format(max_inserts))
+
+
+    # Creating db object
+    logger.info("Creating DB object. Connecting to db.")
     db = ChecksDB(uri_file, table)
+
 
     # Get kafka consumer
     logger.info("Getting kafka consumer")
@@ -71,10 +85,6 @@ def main():
         kafka_topic
     )
 
-    loop_delay = config.getint('aiven', 'delay')
-    logger.debug("Delay between loop iterations: {}".format(loop_delay))
-
-    max_inserts = config.getint('postgresql', 'max_rows_per_insert')
 
     logger.info("Main loop started")
     while True:
@@ -84,38 +94,37 @@ def main():
             threads = []
             messages = []
             for message in kafka_consumer:
+                # Append message to be processed
                 messages.append(message.value.decode('utf-8'))
+                # If messages reaches max_inserts
                 if len(messages) == max_inserts:
+                    logger.info("Inserting {} messages".format(max_inserts))
+                    # Inser messages to the db in a new thread
                     threads.append(
                         threading.Thread(
                             target=db.insert_json_messages,
                             args=(messages, )
                         ))
+                    # Start latest thread
                     threads[-1].start()
                     messages = []
 
+            # Process pending messages if these have not reaches max_inserts
             if messages:
+                logger.info("Inserting {} messages".format(len(messages)))
                 threads.append(
                     threading.Thread(
                         target=db.insert_json_messages,
                         args=(messages, )
                     ))
+                # Start latest thread
                 threads[-1].start()
 
-
-
-            logger.info("Messages processed in this iteration: {}".format(len(messages)))
-
-            logger.info("Processing messages")
+            # Commit kafka consumer to keep track of processed messages
             kafka_consumer.commit()
             logger.debug("Consummer commited")
 
-            x = threading.Thread(
-                target=db.insert_json_messages,
-                args=(messages, )
-            )
-            x.start()
-
+            # Loop delay
             time.sleep(loop_delay)
 
         except KeyboardInterrupt:
@@ -145,9 +154,11 @@ if __name__ == "__main__":
         'POSTGRESQL_TABLE_NAME': 'checks'
     }
 
+    # Reading config file
     parser = EnvConfigParser()
     config = parser.get_parser('consumer.cfg', config_default)
 
+    # Setting up logger
     log_sink = config.get('aiven', 'log_path')
     log_level = config.get('aiven', 'log_level').upper()
     setup_logger(log_sink, log_level)
