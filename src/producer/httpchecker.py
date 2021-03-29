@@ -9,6 +9,7 @@ from loguru import logger
 
 class HTTPChecker:
     def __init__(self, str_url, timeout, regex=None):
+        # Object initializarion
         logger.debug("New HTTPChecker instance for URL: {}".format(str_url))
         self.url = urllib3.util.parse_url(str_url)
         self.http_timeout = timeout
@@ -16,6 +17,7 @@ class HTTPChecker:
 
 
     def __resolve_host(self):
+        # Resolve host to get the ip
         logger.info("Resolving host: {}".format(self.url.host))
         self.dns_start = time.time()
         self.ip = socket.gethostbyname(self.url.host)
