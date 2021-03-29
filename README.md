@@ -28,6 +28,8 @@ To get this idea working I wrote a sime class that:
 1. http check could be implemented in a class. At first glance I understimated the complexity
 1. Receive config file path as parameter
 1. Didn't know of the json adapter included in psycopg2, so it could be used instead of writing it manually.
+1. Try to reconnect if connection to db is lost
+1. execute function to avoid cursor create, execute, close
 
 
 
